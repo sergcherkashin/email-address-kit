@@ -54,7 +54,7 @@ $email->canonical();   // alex@yandex.ru
 
 - default: lowercase local-part + canonical domain;
 - с `ComparisonOptions::ignorePlusTag()` — без `+tag`;
-- с `GmailComparisonStrategy` — для Gmail ещё без точек в local-part.
+- с `ComparisonOptions::ignoreGmailDots()` — для Gmail ещё без точек в local-part.
 
 ## Address и Domain
 

@@ -202,6 +202,22 @@ final class DomainRegistry implements DomainRegistryInterface
     }
 
     /**
+     * {@inheritdoc}
+     */
+    public function services(): array
+    {
+        $map = [];
+
+        foreach ($this->services as $id => $service) {
+            $map[$id] = $service->name();
+        }
+
+        \ksort($map);
+
+        return $map;
+    }
+
+    /**
      * Rebuilds DomainInfo for a domain from internal maps.
      */
     private function rebuildDomainInfo(string $domain): void

@@ -10,7 +10,7 @@ Email::parse(string $input): Email
 $email->original(): string
 $email->normalized(): string
 $email->__toString(): string          // = normalized()
-$email->canonical(?ComparisonOptions $options = null): string
+$email->canonical($options = null): string // ComparisonOptions|ComparisonOptions[]|null
 
 $email->address(): Address
 $email->domain(): Domain
@@ -24,8 +24,8 @@ $email->hasSuggestions(): bool
 $email->suggestions(): EmailSuggestion[]
 $email->correct(float $minConfidence = 0.95): Email
 
-$email->equals($other, ?ComparisonOptions $options = null): bool
-$email->filterEquals(array $emails, ?ComparisonOptions $options = null): array
+$email->equals($other, $options = null): bool // options: ComparisonOptions|ComparisonOptions[]|null
+$email->filterEquals(array $emails, $options = null): array
 ```
 
 ## Address
@@ -54,6 +54,17 @@ $domain->providerDomains(): string[]
 $domain->sameProviderAs($other): bool
 ```
 
+## DomainRegistry
+
+```php
+$registry = EmailFactory::default()->registry();
+
+$registry->domains();   // string[] of known domains
+$registry->services();  // array<string, string> id => name
+$registry->find(string $domain): ?DomainInfo
+$registry->canonical(string $domain): string
+```
+
 ## EmailFactory
 
 ```php
@@ -76,9 +87,10 @@ $factory->disposableChecker(): DisposableDomainCheckerInterface
 ```php
 ComparisonOptions::default()
 ComparisonOptions::ignorePlusTag()
+ComparisonOptions::ignoreGmailDots()
+ComparisonOptions::resolve($options) // null | ComparisonOptions | ComparisonOptions[]
 
 DefaultComparisonStrategy
-GmailComparisonStrategy
 ```
 
 ## Validation

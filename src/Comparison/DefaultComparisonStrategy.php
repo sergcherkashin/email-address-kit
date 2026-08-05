@@ -5,22 +5,31 @@ declare(strict_types=1);
 namespace EmailAddressKit\Comparison;
 
 use EmailAddressKit\Email;
+use EmailAddressKit\Service\EmailService;
 
 /**
  * Default comparison strategy: lowercase + canonical domain from equivalents.
  *
  * Plus-tags are significant by default for every provider.
  * Pass ComparisonOptions::ignorePlusTag() to ignore them.
- * Dots in the local-part are kept significant.
+ *
+ * Dots in the local-part are significant by default (including Gmail).
+ * Pass ComparisonOptions::ignoreGmailDots() to ignore dots for Gmail only.
+ *
+ * Multiple flags may be passed as an array and are merged.
  *
  * Provider domains are not treated as the same mailbox.
  */
-class DefaultComparisonStrategy implements EmailComparisonStrategyInterface
+final class DefaultComparisonStrategy implements EmailComparisonStrategyInterface
 {
+    private const GMAIL_CANONICAL = 'gmail.com';
+
+    private const GMAIL_SERVICE_ID = 'gmail';
+
     /**
      * {@inheritdoc}
      */
-    public function equals(Email $left, Email $right, ?ComparisonOptions $options = null): bool
+    public function equals(Email $left, Email $right, $options = null): bool
     {
         return $this->canonical($left, $options) === $this->canonical($right, $options);
     }
@@ -28,30 +37,26 @@ class DefaultComparisonStrategy implements EmailComparisonStrategyInterface
     /**
      * {@inheritdoc}
      */
-    public function canonical(Email $email, ?ComparisonOptions $options = null): string
+    public function canonical(Email $email, $options = null): string
     {
-        $options ??= ComparisonOptions::default();
+        $resolved = ComparisonOptions::resolve($options);
 
-        return $this->fingerprint($email, $options);
+        return $this->normalizeLocalPart($email, $resolved) . '@' . $email->domain()->canonical();
     }
 
     /**
-     * Builds a comparable fingerprint for an email.
+     * Normalizes the local-part according to comparison options.
      */
-    protected function fingerprint(Email $email, ComparisonOptions $options): string
-    {
-        return $this->normalizeLocalPart($email, $options) . '@' . $email->domain()->canonical();
-    }
-
-    /**
-     * Normalizes the local-part according to this strategy and options.
-     */
-    protected function normalizeLocalPart(Email $email, ComparisonOptions $options): string
+    private function normalizeLocalPart(Email $email, ComparisonOptions $options): string
     {
         $localPart = $email->address()->normalized();
 
         if ($options->shouldIgnorePlusTag()) {
             $localPart = $this->stripPlusTag($localPart);
+        }
+
+        if ($options->shouldIgnoreGmailDots() && $this->isGmail($email)) {
+            $localPart = \str_replace('.', '', $localPart);
         }
 
         return $localPart;
@@ -60,7 +65,7 @@ class DefaultComparisonStrategy implements EmailComparisonStrategyInterface
     /**
      * Removes plus-tag from a local-part.
      */
-    protected function stripPlusTag(string $localPart): string
+    private function stripPlusTag(string $localPart): string
     {
         $plusPosition = \strpos($localPart, '+');
 
@@ -69,5 +74,19 @@ class DefaultComparisonStrategy implements EmailComparisonStrategyInterface
         }
 
         return \substr($localPart, 0, $plusPosition);
+    }
+
+    /**
+     * Checks whether the email belongs to the Gmail mailbox namespace.
+     */
+    private function isGmail(Email $email): bool
+    {
+        if ($email->domain()->canonical() === self::GMAIL_CANONICAL) {
+            return true;
+        }
+
+        $service = $email->domain()->service();
+
+        return $service instanceof EmailService && $service->id() === self::GMAIL_SERVICE_ID;
     }
 }

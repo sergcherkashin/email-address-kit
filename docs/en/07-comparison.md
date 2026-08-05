@@ -6,6 +6,7 @@
 $email->equals('Other@Domain.com');
 $email->equals($otherEmailObject);
 $email->equals($other, ComparisonOptions::ignorePlusTag());
+$email->equals($other, ComparisonOptions::ignoreGmailDots());
 ```
 
 Comparison is case-insensitive and respects **equivalents**.  
@@ -14,6 +15,7 @@ Invalid argument types yield `false` (no exception).
 ```php
 Email::parse('Kate@Ya.RU')->equals('kate@yandex.ru'); // true
 Email::parse('kate@mail.ru')->equals('kate@inbox.ru'); // false (provider, not equivalent)
+Email::parse('kate@googlemail.com')->equals('kate@gmail.com'); // true
 ```
 
 ## Plus-tag
@@ -38,13 +40,32 @@ Email::parse('kate+news@gmail.com')->equals('kate@gmail.com', $opt); // true
 
 ## Dots in the local-part
 
-With the **default** strategy, dots are significant everywhere, including Gmail:
+By default dots are significant everywhere, including Gmail:
 
 ```php
 Email::parse('ka.te@gmail.com')->equals('kate@gmail.com'); // false
 ```
 
-Gmail-style “ignore dots” lives only in `GmailComparisonStrategy` (below).
+Ignore dots for Gmail / `googlemail.com` only:
+
+```php
+use EmailAddressKit\Comparison\ComparisonOptions;
+
+$opt = ComparisonOptions::ignoreGmailDots();
+
+Email::parse('ka.te@gmail.com')->equals('kate@gmail.com', $opt);      // true
+Email::parse('ka.te@googlemail.com')->equals('kate@gmail.com', $opt); // true
+Email::parse('ka.te@mail.ru')->equals('kate@mail.ru', $opt);          // false
+```
+
+Combine with `+tag` as an array of flags:
+
+```php
+Email::parse('ka.te+news@gmail.com')->equals('kate@gmail.com', [
+    ComparisonOptions::ignoreGmailDots(),
+    ComparisonOptions::ignorePlusTag(),
+]); // true
+```
 
 ## canonical
 
@@ -56,9 +77,12 @@ Email::parse('Kate+Shop@Ya.RU')->canonical();
 
 Email::parse('Kate+Shop@Ya.RU')->canonical(ComparisonOptions::ignorePlusTag());
 // kate@yandex.ru
+
+Email::parse('Ka.Te@Gmail.com')->canonical(ComparisonOptions::ignoreGmailDots());
+// kate@gmail.com
 ```
 
-Two addresses are equal ⟺ their `canonical()` values match (same options, same strategy).
+Two addresses are equal ⟺ their `canonical()` values match (same options).
 
 Database usage:
 
@@ -100,47 +124,15 @@ $needle->filterEquals([
 Good for short in-memory lists.  
 For large datasets and UNIQUE constraints, store/query by `canonical()`.
 
-## Comparison strategies
+## Rules summary
 
-### DefaultComparisonStrategy (default)
-
-- lowercase local-part;
-- canonical domain from equivalents;
-- `+tag` significant;
-- dots significant.
-
-### GmailComparisonStrategy
-
-Additionally for Gmail / `googlemail.com`: dots in the local-part are ignored.
-
-| Rule | Where | Example |
+| Rule | How | Example |
 |---|---|---|
-| `+tag` significant | all (default) | `a+x@…` ≠ `a@…` |
-| `+tag` ignored | options flag | `a+x@…` = `a@…` |
-| dots ignored | Gmail strategy only | `a.b@gmail.com` = `ab@gmail.com` |
-| equivalents | always in strategy | `…@googlemail.com` = `…@gmail.com` |
+| `+tag` significant | default | `a+x@…` ≠ `a@…` |
+| `+tag` ignored | `ComparisonOptions::ignorePlusTag()` | `a+x@…` = `a@…` |
+| dots ignored | `ComparisonOptions::ignoreGmailDots()` (Gmail only) | `a.b@gmail.com` = `ab@gmail.com` |
+| equivalents | always | `…@googlemail.com` = `…@gmail.com` |
 
-Enable:
-
-```php
-use EmailAddressKit\Comparison\GmailComparisonStrategy;
-use EmailAddressKit\Domain\BuiltinCompiledDomainSource;
-use EmailAddressKit\Domain\DomainRegistry;
-use EmailAddressKit\Email;
-use EmailAddressKit\EmailFactory;
-
-$factory = EmailFactory::fromRegistry(
-    DomainRegistry::fromDataSource(BuiltinCompiledDomainSource::default()),
-    new GmailComparisonStrategy()
-);
-EmailFactory::setDefault($factory);
-
-Email::parse('ka.te@gmail.com')->equals('kate@gmail.com'); // true
-Email::parse('ka.te@mail.ru')->equals('kate@mail.ru');     // false
-
-Email::parse('ka.te@gmail.com')->canonical(); // kate@gmail.com
-```
-
-`Email::normalized()` **never** depends on the comparison strategy.
+`Email::normalized()` **never** depends on comparison options.
 
 Next: [Typos and auto-correct](08-typo-correction.md)

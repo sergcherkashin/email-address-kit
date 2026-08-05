@@ -49,4 +49,11 @@ interface DomainRegistryInterface
      * @return string[]
      */
     public function domains(): array;
+
+    /**
+     * Returns known services as id => name map.
+     *
+     * @return array<string, string>
+     */
+    public function services(): array;
 }

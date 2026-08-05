@@ -8,17 +8,6 @@ PHP-библиотека для разбора, валидации, нормал
 
 **Полная документация:** [docs/ru](docs/ru/README.md) · [docs/en](docs/en/README.md)
 
-Для IDN-доменов (`почта.рф`, `компания.онлайн` и т.п.) нужно расширение **`intl`** (`idn_to_ascii`).  
-Без него unicode-домены будут `isValid() === false` с кодом `INVALID_DOMAIN`.  
-UTF-8 в local-part (EAI: `иван@gmail.com`) работает и без `intl`.
-
-Проверка:
-
-```bash
-php -m | findstr intl
-# или
-php -m | grep intl
-```
 
 ## Установка
 
@@ -26,57 +15,258 @@ php -m | grep intl
 composer require email-address-kit/email-address-kit
 ```
 
-Локальная разработка:
-
-```bash
-composer install
-php bin/compile-domains
-```
 
 ## Быстрый старт
+
+
+
+### Разбор email на local-part и domain
+
+`Email::parse()` разбирает строку на части. Некорректный ввод не бросает исключение — сначала объект, потом проверка через `isValid()`.
 
 ```php
 use EmailAddressKit\Email;
 
-$email = Email::parse('User.Name@Gmial.com');
+$email = Email::parse('Alex.Petrov+News@Ya.RU');
 
-$email->address()->value();       // User.Name
-$email->domain()->value();        // Gmial.com
-$email->isValid();                // true
-$email->normalized();             // user.name@gmial.com
-$email->hasSuggestions();         // true
-$email->correct()->normalized();  // user.name@gmail.com
+$email->original();              // Alex.Petrov+News@Ya.RU
+$email->address()->value();      // Alex.Petrov+News
+$email->domain()->value();       // Ya.RU
+(string) $email;                 // alex.petrov+news@ya.ru
 ```
 
-## Основные возможности
+---
 
-| Возможность | Описание |
-|---|---|
-| Парсинг | `Email::parse()` — некорректный ввод не бросает исключение |
-| Валидация | синтаксическая, типизированные ошибки |
-| Нормализация | только lowercase; без правок опечаток, `+tag` и точек |
-| Сравнение | case-insensitive + canonical; `+tag` значим по умолчанию |
-| Typo detection | опечатки в домене среди известных доменов |
-| Auto-correct | только при высоком confidence (`domain_typo`) |
-| Disposable | `isDisposable()` — временные домены (отдельно от валидации) |
+### Три способа получить строку email — для разных задач
 
-## Provider vs Equivalents
-
-Два разных отношения между доменами:
-
-**Equivalent domains** — один и тот же mailbox:
+| Метод | Что делает | Когда использовать |
+|---|---|---|
+| `original()` | как ввёл пользователь, без изменений | логи «что пришло», отладка |
+| `normalized()` / `(string)` | только lowercase, без догадок | отображение, шаблоны, безопасная печать |
+| `canonical()` | ключ mailbox: те же правила, что `equals()` | UNIQUE в БД, дедуп, поиск «тот же ящик» |
 
 ```php
-Email::parse('one@ya.ru')->equals('one@yandex.ru');           // true
-Email::parse('one@googlemail.com')->equals('one@gmail.com'); // true
+$email = Email::parse('Kate+Shop@Ya.RU');
+
+$email->original();     // Kate+Shop@Ya.RU
+$email->normalized();   // kate+shop@ya.ru
+(string) $email;        // kate+shop@ya.ru  (= normalized)
+$email->canonical();    // kate+shop@yandex.ru
 ```
 
-Поиск совпадений среди списка (например из БД) — те же правила, что у `equals()`, ключи и исходные строки сохраняются:
+Важно:
+
+- `normalized()` **не** сводит equivalents (`ya.ru` остаётся `ya.ru`) и **не** убирает `+tag` / точки.
+- `canonical()` сводит equivalents (`ya.ru` → `yandex.ru`) и учитывает флаги сравнения, как `equals()`:
+
+```php
+use EmailAddressKit\Comparison\ComparisonOptions;
+
+Email::parse('Ka.Te+News@Gmail.com')->canonical();
+// ka.te+news@gmail.com
+
+Email::parse('Ka.Te+News@Gmail.com')->canonical([
+    ComparisonOptions::ignoreGmailDots(),
+    ComparisonOptions::ignorePlusTag(),
+]);
+// kate@gmail.com
+```
+
+Два адреса — один mailbox ⟺ их `canonical()` совпадают (при тех же флагах).
+
+---
+
+### Название сервиса по домену
+
+Если домен есть в справочнике провайдеров, можно получить сервис: стабильный `id` и человекочитаемое `name`.
 
 ```php
 $email = Email::parse('kate@ya.ru');
 
-$email->filterEquals([
+$email->domain()->isKnown(); // true
+
+$service = $email->service();
+// то же: $email->domain()->service()
+
+$service->id();   // yandex
+$service->name(); // Yandex
+```
+
+Примеры:
+
+```php
+Email::parse('a@gmail.com')->service()->name();       // Gmail
+Email::parse('a@googlemail.com')->service()->name();  // Gmail (тот же сервис)
+Email::parse('a@mail.ru')->service()->name();         // Mail.ru
+Email::parse('a@inbox.ru')->service()->name();        // Mail.ru
+```
+
+Неизвестный домен — сервиса нет:
+
+```php
+$email = Email::parse('anna@my-company.example');
+
+$email->domain()->isKnown(); // false
+$email->service();           // null
+```
+
+Домены одного сервиса, но **разные** ящики, можно отличить через `sameProviderAs` (это не `equals`):
+
+```php
+Email::parse('a@mail.ru')->domain()->sameProviderAs('inbox.ru'); // true
+Email::parse('a@mail.ru')->equals('a@inbox.ru');                 // false
+```
+
+Список всех известных сервисов — map `id => name`:
+
+```php
+use EmailAddressKit\EmailFactory;
+
+$services = EmailFactory::default()->registry()->services();
+// [
+//   'gmail' => 'Gmail',
+//   'mailru' => 'Mail.ru',
+//   'yandex' => 'Yandex',
+//   ...
+// ]
+
+$services['gmail']; // Gmail
+```
+
+Также доступен список доменов: `registry()->domains()`.
+
+---
+
+### Поддержка кириллицы (IDN / EAI)
+
+Библиотека умеет работать с unicode в **домене** и в **local-part**.
+
+#### Домен (IDN → Punycode)
+
+Нужно расширение PHP **`intl`**. Unicode-домен и его ASCII-форма считаются одним и тем же при `equals()`.
+
+```php
+$email = Email::parse('info@почта.рф');
+
+$email->isValid();           // true (с intl)
+$email->normalized();        // info@почта.рф
+$email->domain()->value();   // почта.рф
+$email->domain()->ascii();   // xn--80a1acny.xn--p1ai
+
+Email::parse('info@почта.рф')
+    ->equals('info@xn--80a1acny.xn--p1ai'); // true
+```
+
+Без `intl` не-ASCII **домен** → `isValid() === false`, код `INVALID_DOMAIN`.
+
+```bash
+php -m | findstr intl
+# или: php -m | grep intl
+```
+
+#### Local-part (EAI)
+
+UTF-8 буквы/цифры в имени ящика допустимы и **не** переводятся в Punycode. Работает и **без** `intl`.
+
+```php
+Email::parse('иван@gmail.com')->isValid();            // true
+Email::parse('иван.петров@gmail.com')->isValid();     // true
+Email::parse('инфо@компания.онлайн')->isValid();      // true (домен — при наличии intl)
+```
+
+Сравнение/нормализация local-part — с учётом unicode lowercase, где это возможно.
+
+---
+
+### Синтаксическая валидация
+
+Проверяется формат адреса: наличие `@`, пустые части, недопустимые символы, длина, структура домена.
+
+```php
+$email = Email::parse('hello@world.com');
+$email->isValid(); // true
+
+$bad = Email::parse('not-an-email');
+$bad->isValid(); // false
+
+foreach ($bad->validation()->errors() as $error) {
+    $error->code();     // например INVALID_FORMAT
+    $error->message();
+}
+```
+
+---
+
+### Опциональная проверка DNS (MX/A)
+
+DNS выключен по умолчанию. При необходимости можно проверить, что у домена есть MX или A-запись.
+
+```php
+use EmailAddressKit\Validation\ValidationOptions;
+
+$email = Email::parse('nina.k@example.com');
+
+$email->isValid(); // true; только синтаксис
+
+$email->isValid(ValidationOptions::checkDns()); // синтаксис + MX или A у домена
+
+$result = $email->validation(ValidationOptions::checkDns()); // нет DNS-записей → код DNS_CHECK_FAILED
+```
+
+DNS выполняется только после успешной синтаксической проверки. Временный сбой DNS может дать ложноотрицательный результат. Это не проверка «ящик существует на сервере».
+
+---
+
+### Сравнение адресов (`equals`)
+
+Сравнивает, один ли это mailbox: без учёта регистра и с учётом equivalent-доменов (`ya.ru` ↔ `yandex.ru`, `googlemail.com` ↔ `gmail.com`).
+
+```php
+Email::parse('Kate@Ya.RU')->equals('kate@yandex.ru');     // true
+Email::parse('kate@mail.ru')->equals('kate@inbox.ru');    // false (один сервис, разные ящики)
+Email::parse('kate+news@mail.ru')->equals('kate@mail.ru'); // false (+tag значим)
+
+// Gmail equivalents — один mailbox:
+Email::parse('kate@googlemail.com')->equals('kate@gmail.com'); // true
+```
+
+По умолчанию точки в local-part значимы даже у Gmail. Чтобы считать `ka.te@gmail.com` и `kate@gmail.com` одним ящиком:
+
+```php
+use EmailAddressKit\Comparison\ComparisonOptions;
+
+Email::parse('ka.te@gmail.com')->equals('kate@gmail.com', ComparisonOptions::ignoreGmailDots()); // true
+Email::parse('ka.te@googlemail.com')->equals('kate@gmail.com', ComparisonOptions::ignoreGmailDots()); // true
+Email::parse('ka.te@mail.ru')->equals('kate@mail.ru', ComparisonOptions::ignoreGmailDots()); // false (не Gmail)
+```
+
+Точки Gmail и `+tag` можно комбинировать массивом флагов:
+
+```php
+Email::parse('ka.te+news@gmail.com')->equals('kate@gmail.com', [
+    ComparisonOptions::ignoreGmailDots(),
+    ComparisonOptions::ignorePlusTag(),
+]); // true
+```
+
+Чтобы игнорировать `+tag` у всех провайдеров:
+
+```php
+use EmailAddressKit\Comparison\ComparisonOptions;
+
+Email::parse('kate+news@mail.ru')->equals('kate@mail.ru', ComparisonOptions::ignorePlusTag()); // true
+```
+
+---
+
+### Поиск совпадений в массиве (`filterEquals`)
+
+Ищет в списке (например из БД) все адреса того же mailbox. Ключи и исходные строки сохраняются.
+
+```php
+$needle = Email::parse('kate@ya.ru');
+
+$needle->filterEquals([
     'bob@yandex.ru',
     'KATE@yandex.ru',
     'kate@yandex.ru',
@@ -84,7 +274,7 @@ $email->filterEquals([
 ]);
 // [1 => 'KATE@yandex.ru', 2 => 'kate@yandex.ru']
 
-$email->filterEquals([
+$needle->filterEquals([
     10 => 'bob@yandex.ru',
     11 => 'KATE@yandex.ru',
     36 => 'kate@yandex.ru',
@@ -93,304 +283,56 @@ $email->filterEquals([
 // [11 => 'KATE@yandex.ru', 36 => 'kate@yandex.ru']
 ```
 
-Ключ уникальности для БД / индексов (те же правила, что `equals()`):
+Подходит для коротких списков в памяти. Для больших выборок лучше хранить и искать по `canonical()`.
+
+---
+
+### Определение опечаток в домене
+
+Детектор сравнивает домен с известными провайдерами и предлагает похожие варианты (например `gmial.com` → `gmail.com`).
 
 ```php
-Email::parse('Kate@Ya.RU')->canonical();     // kate@yandex.ru
-Email::parse('kate@yandex.ru')->canonical(); // kate@yandex.ru
+$email = Email::parse('igor@gmial.com');
 
-// normalized() домен не сводит:
-Email::parse('Kate@Ya.RU')->normalized();    // kate@ya.ru
-```
+$email->hasSuggestions(); // true
 
-**Provider domains** — один сервис, разные ящики:
-
-```php
-Email::parse('one@mail.ru')->equals('one@inbox.ru'); // false
-
-Email::parse('one@mail.ru')
-    ->domain()
-    ->sameProviderAs('inbox.ru'); // true
-```
-
-Подробности: [docs/ru](docs/ru/README.md).
-
-## API
-
-```php
-$email = Email::parse($input);
-
-$email->original();
-$email->normalized();        // = (string) $email
-$email->canonical();         // ключ mailbox (equals / БД)
-$email->address();           // Address
-$email->domain();            // Domain
-$email->isValid();
-$email->validation();        // ValidationResult
-$email->isValid(\EmailAddressKit\Validation\ValidationOptions::checkDns());
-$email->isDisposable();      // временный/одноразовый домен
-$email->service();           // ?EmailService
-$email->hasSuggestions();
-$email->suggestions();       // EmailSuggestion[]
-$email->correct(0.95);       // Email
-$email->equals($other);      // Email|string
-$email->filterEquals($list); // совпадения из массива (ключи сохраняются)
-```
-
-`(string) $email` / echo / шаблоны — всегда `normalized()`: lowercase без правок опечаток и без свода equivalents.  
-Для сырого ввода — `original()`, для ключа БД — `canonical()`.
-
-### Disposable (временные) домены
-
-Проверка **отдельная** от `isValid()`: адрес может быть синтаксически валидным и при этом disposable.
-
-```php
-Email::parse('user@mailinator.com')->isValid();       // true
-Email::parse('user@mailinator.com')->isDisposable();  // true
-Email::parse('user@gmail.com')->isDisposable();       // false
-```
-
-Runtime читает скомпилированный hash-map `resources/compiled/disposable.php` (O(1), плюс опциональный match родительских доменов: `foo.mailinator.com`).
-
-Обновление списка:
-
-```bash
-composer update-disposable
-# или офлайн из seed:
-php bin/update-disposable --local-only
-```
-
-Источники настраиваются в `resources/disposable/sources.php` — primary (по умолчанию groundcat) и fallback (локальный `seed.txt`).  
-Allowlist реальных провайдеров: `resources/disposable/allowlist.txt`.
-
-Если upstream-репозиторий забросят — меняете URL/тип источника в конфиге, код checker'а трогать не нужно.
-
-Кастомный checker:
-
-```php
-use EmailAddressKit\Disposable\DisposableDomainChecker;
-use EmailAddressKit\EmailFactory;
-
-$factory = EmailFactory::fromRegistry(
-    EmailFactory::default()->registry(),
-    null,
-    null,
-    DisposableDomainChecker::default()
-);
-```
-
-### DNS / MX
-
-По умолчанию DNS **не** проверяется.
-
-```php
-use EmailAddressKit\Validation\ValidationOptions;
-
-$email = Email::parse('user@example.com');
-
-$email->isValid(); // только синтаксис
-
-$email->isValid(ValidationOptions::checkDns());
-// синтаксис + наличие MX или A у домена
-
-$result = $email->validation(ValidationOptions::checkDns());
-// при отсутствии DNS-записей: код DNS_CHECK_FAILED
-```
-
-DNS проверяется только после успешной синтаксической валидации.  
-Временные сбои DNS могут дать ложноотрицательный результат.
-
-### IDN / Punycode / EAI
-
-- **Домен:** IDN → Punycode (`intl` / `idn_to_ascii`). Unicode и ASCII-формы одного домена равны при `equals()`.
-- **Local-part:** EAI — UTF-8 буквы/цифры допустимы, **без** Punycode.
-
-```php
-Email::parse('иван@почта.рф')->isValid();                      // true
-Email::parse('иван@xn--80a1acny.xn--p1ai')->isValid();         // true
-Email::parse('инфо@компания.онлайн')->isValid();                 // true
-Email::parse('contact@почта.рф')->isValid();                   // true
-Email::parse('иван.иванов@gmail.com')->isValid();              // true
-
-$email = Email::parse('иван@почта.рф');
-$email->normalized();          // иван@почта.рф
-$email->domain()->ascii();     // xn--80a1acny.xn--p1ai
-$email->equals('иван@xn--80a1acny.xn--p1ai'); // true
-```
-
-Без `intl` не-ASCII **домены** получают `INVALID_DOMAIN` — это ожидаемое поведение, не баг.  
-Включите расширение в `php.ini` (OpenServer: настройки PHP → `intl`).  
-UTF-8 в local-part работает и без `intl`.
-
-### Domain
-
-```php
-$domain = $email->domain();
-
-$domain->value();
-$domain->normalized();
-$domain->ascii();           // Punycode / ASCII
-$domain->canonical();
-$domain->isKnown();
-$domain->service();
-$domain->equivalents();
-$domain->providerDomains();
-$domain->sameProviderAs($other);
-```
-
-### Suggestions
-
-```php
 foreach ($email->suggestions() as $suggestion) {
-    $suggestion->email()->normalized();
-    $suggestion->score();   // 0.0 … 1.0
-    $suggestion->reason();  // domain_typo | domain_equivalent
+    $suggestion->email()->normalized(); // igor@gmail.com
+    $suggestion->score();               // 0.0 … 1.0
+    $suggestion->reason();              // domain_typo | domain_equivalent
 }
 ```
 
-`correct()` применяет только `domain_typo` при score ≥ порога.  
-Equivalent rewrite (`googlemail.com` → `gmail.com`) используется в `equals()` / `canonical()`, но не в auto-correct.
+`domain_typo` — похоже на опечатку.  
+`domain_equivalent` — информативное предложение свернуть к canonical (`googlemail.com` → `gmail.com`); в автоисправление как typo не применяется.
 
-## Стратегии сравнения
+---
 
-### DefaultComparisonStrategy
+### Автоисправление опечаток при высокой уверенности
 
-Используется по умолчанию:
-
-- lowercase;
-- canonical domain из equivalents;
-- **`+tag` значим** у всех провайдеров;
-- точки в local-part **сохраняются** (значимы).
+`correct()` применяет только `domain_typo` и только если score не ниже порога (по умолчанию `0.95`). Иначе адрес остаётся без изменений.
 
 ```php
-Email::parse('serg+news@mail.ru')->equals('serg@mail.ru'); // false
-Email::parse('ser.g@gmail.com')->equals('serg@gmail.com');   // false
+Email::parse('igor@gmial.com')->correct()->normalized();
+// igor@gmail.com
+
+Email::parse('igor@gmial.com')->correct(0.99); // свой порог
 ```
 
-Чтобы игнорировать `+tag` у всех:
+---
+
+### Определение disposable / временных доменов
+
+Проверка отдельная от `isValid()`: временный адрес часто синтаксически корректен.
 
 ```php
-use EmailAddressKit\Comparison\ComparisonOptions;
-
-$options = ComparisonOptions::ignorePlusTag();
-
-Email::parse('serg+news@mail.ru')->equals('serg@mail.ru', $options); // true
-Email::parse('serg+news@gmail.com')->equals('serg@gmail.com', $options); // true
+Email::parse('demo@mailinator.com')->isValid();      // true
+Email::parse('demo@mailinator.com')->isDisposable(); // true
+Email::parse('demo@gmail.com')->isDisposable();      // false
 ```
 
-### GmailComparisonStrategy
+Список доменов читается из скомпилированного hash-map (O(1)). Опционально учитываются родительские домены: `foo.mailinator.com` тоже считается disposable. Список обновляется через `composer update-disposable` (или офлайн `--local-only`).
 
-Дополнительно к default: для Gmail / `googlemail.com` точки в local-part игнорируются.
-
-| Правило | Где | Пример |
-|---|---|---|
-| `+tag` значим | все провайдеры (default) | `serg+news@…` ≠ `serg@…` |
-| `+tag` игнорировать | флаг `ComparisonOptions::ignorePlusTag()` | `serg+news@…` = `serg@…` |
-| точки игнорируются | только Gmail | `ser.g@gmail.com` = `serg@gmail.com` |
-| equivalents | Gmail | `serg@googlemail.com` = `serg@gmail.com` |
-
-```php
-use EmailAddressKit\Comparison\ComparisonOptions;
-use EmailAddressKit\Comparison\GmailComparisonStrategy;
-use EmailAddressKit\Domain\BuiltinCompiledDomainSource;
-use EmailAddressKit\Domain\DomainRegistry;
-use EmailAddressKit\Email;
-use EmailAddressKit\EmailFactory;
-
-$factory = EmailFactory::fromRegistry(
-    DomainRegistry::fromDataSource(BuiltinCompiledDomainSource::default()),
-    new GmailComparisonStrategy()
-);
-EmailFactory::setDefault($factory);
-
-Email::parse('ser.g@gmail.com')->equals('serg@gmail.com');       // true
-Email::parse('ser.g+news@gmail.com')->equals('serg@gmail.com'); // false
-Email::parse('ser.g@mail.ru')->equals('serg@mail.ru');           // false
-
-Email::parse('ser.g+news@gmail.com')->equals(
-    'serg@gmail.com',
-    ComparisonOptions::ignorePlusTag()
-); // true
-
-// Нормализация не зависит от стратегии сравнения:
-Email::parse('Ser.G+Tag@Gmail.Com')->normalized(); // ser.g+tag@gmail.com
-```
-
-`Email::normalized()` **никогда** не удаляет точки и `+tag` — это только правила `equals()`.
-
-## Справочник доменов
-
-Source of truth:
-
-```text
-resources/domains/providers/*.php
-```
-
-Пример без equivalents:
-
-```php
-return [
-    'id' => 'mailru',
-    'name' => 'Mail.ru',
-    'domains' => [
-        'mail.ru',
-        'inbox.ru',
-        'list.ru',
-        'bk.ru',
-    ],
-];
-```
-
-С equivalents:
-
-```php
-return [
-    'id' => 'gmail',
-    'name' => 'Gmail',
-    'domains' => [
-        'gmail.com',
-        'googlemail.com',
-    ],
-    'equivalents' => [
-        'gmail.com' => ['googlemail.com'],
-    ],
-];
-```
-
-Сборка runtime-индекса:
-
-```bash
-php bin/compile-domains
-```
-
-В `resources/compiled/domains.php` поле `c` (canonical) пишется **только** если оно отличается от домена:
-
-```php
-'mail.ru' => ['s' => 'mailru'],
-'ya.ru'   => ['s' => 'yandex', 'c' => 'yandex.ru'],
-```
-
-## Кастомный реестр
-
-```php
-use EmailAddressKit\Domain\DomainRegistry;
-use EmailAddressKit\EmailFactory;
-
-$registry = new DomainRegistry();
-$registry->registerProvider('mailru', 'Mail.ru', [
-    'mail.ru',
-    'inbox.ru',
-]);
-$registry->register(
-    'gmail',
-    'Gmail',
-    ['gmail.com', 'googlemail.com'],
-    ['gmail.com' => ['googlemail.com']]
-);
-
-$factory = EmailFactory::fromRegistry($registry);
-$email = $factory->parse('user@gmial.com');
-```
 
 ## Разработка
 

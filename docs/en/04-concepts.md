@@ -54,7 +54,7 @@ It uses the **same comparison strategy** as `equals()`:
 
 - default: lowercase local-part + canonical domain;
 - with `ComparisonOptions::ignorePlusTag()` — without `+tag`;
-- with `GmailComparisonStrategy` — for Gmail, dots in the local-part are also removed.
+- with `ComparisonOptions::ignoreGmailDots()` — for Gmail, dots in the local-part are also removed.
 
 ## Address and Domain
 

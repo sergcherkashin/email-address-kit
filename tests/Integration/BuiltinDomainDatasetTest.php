@@ -36,6 +36,19 @@ final class BuiltinDomainDatasetTest extends TestCase
         self::assertSame('inbox.ru', $registry->canonical('inbox.ru'));
     }
 
+    public function testServicesMap(): void
+    {
+        $services = DomainRegistry::fromDataSource(BuiltinCompiledDomainSource::default())->services();
+
+        self::assertSame('Gmail', $services['gmail']);
+        self::assertSame('Yandex', $services['yandex']);
+        self::assertSame('Mail.ru', $services['mailru']);
+        $keys = \array_keys($services);
+        $sorted = $keys;
+        \sort($sorted);
+        self::assertSame($sorted, $keys);
+    }
+
     public function testPublicApiExampleFromTz(): void
     {
         $email = Email::parse('Vera.Coryacovskaya@Yndex.ru');

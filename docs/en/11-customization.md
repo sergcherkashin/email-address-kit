@@ -8,11 +8,9 @@ Composition root for registry, validator, typo stack, comparison strategy, dispo
 use EmailAddressKit\EmailFactory;
 use EmailAddressKit\Domain\DomainRegistry;
 use EmailAddressKit\Domain\BuiltinCompiledDomainSource;
-use EmailAddressKit\Comparison\GmailComparisonStrategy;
 
 $factory = EmailFactory::fromRegistry(
-    DomainRegistry::fromDataSource(BuiltinCompiledDomainSource::default()),
-    new GmailComparisonStrategy()
+    DomainRegistry::fromDataSource(BuiltinCompiledDomainSource::default())
 );
 
 EmailFactory::setDefault($factory); // affects Email::parse()

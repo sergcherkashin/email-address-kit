@@ -206,11 +206,14 @@ final class Email
      *
      * Accepted values for $other: Email instance or raw email string.
      * Plus-tags are significant by default; pass ComparisonOptions::ignorePlusTag()
-     * to ignore them for all providers.
+     * to ignore them for all providers. Pass ComparisonOptions::ignoreGmailDots()
+     * to ignore dots for Gmail / googlemail.com only. Multiple flags may be passed
+     * as an array.
      *
-     * @param mixed                   $other   Email object or raw email string.
+     * @param mixed                                          $other   Email object or raw email string.
+     * @param ComparisonOptions|ComparisonOptions[]|null     $options Comparison flags.
      */
-    public function equals($other, ?ComparisonOptions $options = null): bool
+    public function equals($other, $options = null): bool
     {
         if (\is_string($other)) {
             $other = self::parse($other);
@@ -230,9 +233,11 @@ final class Email
      * lowercase local-part, canonical domain from equivalents, optional flags.
      *
      * Unlike normalized(), this may rewrite the domain (ya.ru → yandex.ru)
-     * and, with GmailComparisonStrategy, may strip Gmail dots.
+     * and, with ComparisonOptions::ignoreGmailDots(), may strip Gmail dots.
+     *
+     * @param ComparisonOptions|ComparisonOptions[]|null $options Comparison flags.
      */
-    public function canonical(?ComparisonOptions $options = null): string
+    public function canonical($options = null): string
     {
         return $this->comparisonStrategy->canonical($this, $options);
     }
@@ -243,11 +248,12 @@ final class Email
      * Uses the same rules as equals() (case, equivalents, optional ComparisonOptions).
      * Original values and array keys are preserved.
      *
-     * @param array<array-key, Email|string> $emails  Candidate emails (string or Email).
+     * @param array<array-key, Email|string>              $emails  Candidate emails (string or Email).
+     * @param ComparisonOptions|ComparisonOptions[]|null  $options Comparison flags.
      *
      * @return array<array-key, Email|string>
      */
-    public function filterEquals(array $emails, ?ComparisonOptions $options = null): array
+    public function filterEquals(array $emails, $options = null): array
     {
         $matches = [];
 
