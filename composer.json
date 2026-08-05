@@ -1,0 +1,46 @@
+{
+    "name": "email-address-kit/email-address-kit",
+    "description": "Email Address Kit — PHP library for parsing, validating, normalizing, comparing and correcting email addresses",
+    "type": "library",
+    "keywords": [
+        "email",
+        "validation",
+        "normalization",
+        "canonical",
+        "typo",
+        "disposable",
+        "mailbox"
+    ],
+    "license": "MIT",
+    "require": {
+        "php": "^7.4 || ^8.0"
+    },
+    "suggest": {
+        "ext-intl": "Required to validate and normalize IDN domains (e.g. почта.рф) via idn_to_ascii()"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "vimeo/psalm": "^5.26",
+        "rector/rector": "^1.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "EmailAddressKit\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "EmailAddressKit\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "psalm": "psalm --no-cache",
+        "rector": "rector process --dry-run",
+        "compile-domains": "php bin/compile-domains",
+        "update-disposable": "php bin/update-disposable"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

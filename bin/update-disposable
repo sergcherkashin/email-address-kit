@@ -1,0 +1,89 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Downloads / loads disposable domain sources and compiles runtime hash map.
+ *
+ * Usage:
+ *   php bin/update-disposable
+ *   php bin/update-disposable --local-only
+ *
+ * Config: resources/disposable/sources.php
+ * Output: resources/compiled/disposable.php
+ */
+
+$root = \dirname(__DIR__);
+$autoload = $root . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+
+if (!\is_file($autoload)) {
+    \fwrite(STDERR, "Run composer install first.\n");
+    exit(1);
+}
+
+require $autoload;
+
+use EmailAddressKit\Disposable\DisposableDomainCompiler;
+use EmailAddressKit\Disposable\DisposableSourceException;
+use EmailAddressKit\Disposable\DisposableSourceFactory;
+
+$configFile = $root . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'disposable' . DIRECTORY_SEPARATOR . 'sources.php';
+$compiledDir = $root . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'compiled';
+
+$localOnly = \in_array('--local-only', $argv, true);
+
+if (!\is_file($configFile)) {
+    \fwrite(STDERR, "Config not found: {$configFile}\n");
+    exit(1);
+}
+
+/** @var array{primary: array<string, mixed>, fallback?: array<string, mixed>|null, allowlist: string} $config */
+$config = require $configFile;
+
+$allowlist = [];
+if (isset($config['allowlist']) && \is_string($config['allowlist']) && \is_file($config['allowlist'])) {
+    $lines = \file($config['allowlist'], FILE_IGNORE_NEW_LINES);
+    if ($lines !== false) {
+        foreach ($lines as $line) {
+            $line = \trim($line);
+            if ($line === '' || $line[0] === '#') {
+                continue;
+            }
+            $allowlist[] = $line;
+        }
+    }
+}
+
+try {
+    if ($localOnly) {
+        if (!isset($config['fallback']) || !\is_array($config['fallback'])) {
+            \fwrite(STDERR, "--local-only requires a fallback local source in sources.php\n");
+            exit(1);
+        }
+        $primary = DisposableSourceFactory::fromConfig($config['fallback']);
+        $fallback = null;
+    } else {
+        $primary = DisposableSourceFactory::fromConfig($config['primary']);
+        $fallback = null;
+        if (isset($config['fallback']) && \is_array($config['fallback'])) {
+            $fallback = DisposableSourceFactory::fromConfig($config['fallback']);
+        }
+    }
+
+    $compiler = new DisposableDomainCompiler($compiledDir);
+    $result = $compiler->compile($primary, $fallback, $allowlist);
+} catch (DisposableSourceException $e) {
+    \fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+}
+
+\fwrite(
+    STDOUT,
+    \sprintf(
+        "Compiled %d disposable domains from source \"%s\" into %s\n",
+        $result['count'],
+        $result['source'],
+        $result['path']
+    )
+);

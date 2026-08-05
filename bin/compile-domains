@@ -1,0 +1,131 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Compiles provider source files into a compact runtime domain index.
+ */
+
+$root = \dirname(__DIR__);
+$providersDir = $root . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'domains' . DIRECTORY_SEPARATOR . 'providers';
+$compiledDir = $root . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'compiled';
+$manifestFile = $root . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'domains' . DIRECTORY_SEPARATOR . 'manifest.php';
+
+if (!\is_dir($compiledDir) && !\mkdir($compiledDir, 0777, true) && !\is_dir($compiledDir)) {
+    \fwrite(STDERR, "Unable to create compiled directory.\n");
+    exit(1);
+}
+
+/** @var string[] $manifest */
+$manifest = require $manifestFile;
+
+$domains = [];
+$services = [];
+
+foreach ($manifest as $fileName) {
+    $path = $providersDir . DIRECTORY_SEPARATOR . $fileName;
+
+    if (!\is_file($path)) {
+        \fwrite(STDERR, "Provider file not found: {$path}\n");
+        exit(1);
+    }
+
+    /** @var array{id: string, name: string, domains: string[], equivalents?: array<string, string[]>} $definition */
+    $definition = require $path;
+
+    $serviceId = \strtolower($definition['id']);
+    $services[$serviceId] = $definition['name'];
+
+    $canonicalByDomain = [];
+
+    foreach ($definition['domains'] as $domain) {
+        $normalized = \strtolower($domain);
+        $canonicalByDomain[$normalized] = $normalized;
+    }
+
+    if (isset($definition['equivalents']) && \is_array($definition['equivalents'])) {
+        foreach ($definition['equivalents'] as $canonical => $equivalents) {
+            $canonicalNormalized = \strtolower((string) $canonical);
+            $canonicalByDomain[$canonicalNormalized] = $canonicalNormalized;
+
+            foreach ($equivalents as $equivalent) {
+                $canonicalByDomain[\strtolower((string) $equivalent)] = $canonicalNormalized;
+            }
+        }
+    }
+
+    foreach ($canonicalByDomain as $domain => $canonical) {
+        $entry = ['s' => $serviceId];
+
+        if ($canonical !== $domain) {
+            $entry['c'] = $canonical;
+        }
+
+        $domains[$domain] = $entry;
+    }
+}
+
+\ksort($domains);
+\ksort($services);
+
+$domainsExport = var_export($domains, true);
+$servicesExport = var_export($services, true);
+$generatedAt = \gmdate('c');
+$count = \count($domains);
+
+$domainsPhp = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Auto-generated compiled domain index.
+ *
+ * Do not edit manually. Run: php bin/compile-domains
+ *
+ * @return array<string, array{s: string, c?: string}>
+ */
+return {$domainsExport};
+
+PHP;
+
+$servicesPhp = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Auto-generated service name map.
+ *
+ * Do not edit manually. Run: php bin/compile-domains
+ *
+ * @return array<string, string>
+ */
+return {$servicesExport};
+
+PHP;
+
+$metaPhp = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Auto-generated compiled dataset metadata.
+ *
+ * @return array{version: int, count: int, generated_at: string}
+ */
+return [
+    'version' => 1,
+    'count' => {$count},
+    'generated_at' => '{$generatedAt}',
+];
+
+PHP;
+
+\file_put_contents($compiledDir . DIRECTORY_SEPARATOR . 'domains.php', $domainsPhp);
+\file_put_contents($compiledDir . DIRECTORY_SEPARATOR . 'services.php', $servicesPhp);
+\file_put_contents($compiledDir . DIRECTORY_SEPARATOR . 'meta.php', $metaPhp);
+
+\fwrite(STDOUT, "Compiled {$count} domains into resources/compiled/\n");

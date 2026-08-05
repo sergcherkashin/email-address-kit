@@ -1,0 +1,59 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Manifest of provider source files used by the compile script.
+ *
+ * @return string[]
+ */
+return [
+    'gmail.php',
+    'outlook.php',
+    'yahoo.php',
+    'icloud.php',
+    'aol.php',
+    'proton.php',
+    'zoho.php',
+    'yandex.php',
+    'mailru.php',
+    'rambler.php',
+    'gmx.php',
+    'webde.php',
+    'tonline.php',
+    'mailcom.php',
+    'fastmail.php',
+    'tutanota.php',
+    'hey.php',
+    'mailboxorg.php',
+    'posteo.php',
+    'runbox.php',
+    'qq.php',
+    'netease.php',
+    'naver.php',
+    'daum.php',
+    'rediff.php',
+    'ukrnet.php',
+    'iua.php',
+    'seznam.php',
+    'wppl.php',
+    'onet.php',
+    'interia.php',
+    'orange.php',
+    'freefr.php',
+    'laposte.php',
+    'libero.php',
+    'virgilio.php',
+    'tiscali.php',
+    'btinternet.php',
+    'virginmedia.php',
+    'sky.php',
+    'comcast.php',
+    'att.php',
+    'verizon.php',
+    'cox.php',
+    'charter.php',
+    'inboxlv.php',
+    'abv.php',
+    'mailbg.php',
+];
